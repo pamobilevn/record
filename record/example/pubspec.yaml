@@ -23,6 +23,10 @@ dependencies:
 # dependency_overrides:
 #   record_platform_interface:
 #     path: ../../record_platform_interface
+#   record_web:
+#     path: ../../record_web
+#   record_windows:
+#     path: ../../record_windows
 #   record_linux:
 #     path: ../../record_linux
 #   record_android:
