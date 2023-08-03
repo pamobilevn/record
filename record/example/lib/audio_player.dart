@@ -14,9 +14,9 @@ class AudioPlayer extends StatefulWidget {
   final VoidCallback onDelete;
 
   const AudioPlayer({
-    Key? key,
-    required this.source,
-    required this.onDelete,
+    Key key,
+    @required this.source,
+    @required this.onDelete,
   }) : super(key: key);
 
   @override
@@ -28,11 +28,11 @@ class AudioPlayerState extends State<AudioPlayer> {
   static const double _deleteBtnSize = 24;
 
   final _audioPlayer = ap.AudioPlayer()..setReleaseMode(ReleaseMode.stop);
-  late StreamSubscription<void> _playerStateChangedSubscription;
-  late StreamSubscription<Duration?> _durationChangedSubscription;
-  late StreamSubscription<Duration> _positionChangedSubscription;
-  Duration? _position;
-  Duration? _duration;
+  StreamSubscription<void> _playerStateChangedSubscription;
+  StreamSubscription<Duration> _durationChangedSubscription;
+  StreamSubscription<Duration> _positionChangedSubscription;
+  Duration _position;
+  Duration _duration;
 
   @override
   void initState() {

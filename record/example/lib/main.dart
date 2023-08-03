@@ -13,7 +13,7 @@ void main() => runApp(const MyApp());
 class _AudioRecorder extends StatefulWidget {
   final void Function(String path) onStop;
 
-  const _AudioRecorder({Key? key, required this.onStop}) : super(key: key);
+  const _AudioRecorder({Key key, @required this.onStop}) : super(key: key);
 
   @override
   State<_AudioRecorder> createState() => _AudioRecorderState();
@@ -21,12 +21,12 @@ class _AudioRecorder extends StatefulWidget {
 
 class _AudioRecorderState extends State<_AudioRecorder> {
   int _recordDuration = 0;
-  Timer? _timer;
-  late final AudioRecorder _audioRecorder;
-  StreamSubscription<RecordState>? _recordSub;
+  Timer _timer;
+  AudioRecorder _audioRecorder;
+  StreamSubscription<RecordState> _recordSub;
   RecordState _recordState = RecordState.stop;
-  StreamSubscription<Amplitude>? _amplitudeSub;
-  Amplitude? _amplitude;
+  StreamSubscription<Amplitude> _amplitudeSub;
+  Amplitude _amplitude;
 
   @override
   void initState() {
@@ -168,8 +168,8 @@ class _AudioRecorderState extends State<_AudioRecorder> {
   }
 
   Widget _buildRecordStopControl() {
-    late Icon icon;
-    late Color color;
+    Icon icon;
+    Color color;
 
     if (_recordState != RecordState.stop) {
       icon = const Icon(Icons.stop, color: Colors.red, size: 30);
@@ -198,8 +198,8 @@ class _AudioRecorderState extends State<_AudioRecorder> {
       return const SizedBox.shrink();
     }
 
-    late Icon icon;
-    late Color color;
+    Icon icon;
+    Color color;
 
     if (_recordState == RecordState.record) {
       icon = const Icon(Icons.pause, color: Colors.red, size: 30);
@@ -260,7 +260,7 @@ class _AudioRecorderState extends State<_AudioRecorder> {
 }
 
 class MyApp extends StatefulWidget {
-  const MyApp({Key? key}) : super(key: key);
+  const MyApp({Key key}) : super(key: key);
 
   @override
   State<MyApp> createState() => _MyAppState();
@@ -268,7 +268,7 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   bool showPlayer = false;
-  String? audioPath;
+  String audioPath;
 
   @override
   void initState() {
@@ -285,7 +285,7 @@ class _MyAppState extends State<MyApp> {
               ? Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 25),
                   child: AudioPlayer(
-                    source: audioPath!,
+                    source: audioPath,
                     onDelete: () {
                       setState(() => showPlayer = false);
                     },
