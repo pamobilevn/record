@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
 import 'package:record_platform_interface/record_platform_interface.dart';
 import 'package:uuid/uuid.dart';
 
@@ -9,16 +8,16 @@ const _uuid = Uuid();
 
 /// Audio recorder
 class AudioRecorder {
-  StreamController<Amplitude> _amplitudeStreamCtrl;
+  StreamController<Amplitude>? _amplitudeStreamCtrl;
 
   final _stateStreamCtrl = StreamController<RecordState>.broadcast();
-  StreamSubscription _stateStreamSubscription;
+  late final StreamSubscription _stateStreamSubscription;
 
-  StreamController<Uint8List> _recordStreamCtrl;
-  StreamSubscription _recordStreamSubscription;
+  StreamController<Uint8List>? _recordStreamCtrl;
+  StreamSubscription? _recordStreamSubscription;
 
-  Timer _amplitudeTimer;
-  Duration _amplitudeTimerInterval;
+  Timer? _amplitudeTimer;
+  late Duration _amplitudeTimerInterval;
 
   final String _recorderId;
 
@@ -54,7 +53,7 @@ class AudioRecorder {
   /// Output path can be retrieves when [stop] method is called.
   Future<void> start(
     RecordConfig config, {
-    @required String path,
+    required String path,
   }) async {
     await _createCompleter.future;
     return RecordPlatform.instance.start(_recorderId, config, path: path);
@@ -84,13 +83,13 @@ class AudioRecorder {
       },
     );
 
-    return _recordStreamCtrl.stream;
+    return _recordStreamCtrl!.stream;
   }
 
   /// Stops recording session and release internal recorder resource.
   ///
   /// Returns the output path if any.
-  Future<String> stop() async {
+  Future<String?> stop() async {
     await _createCompleter.future;
     _amplitudeTimer?.cancel();
 
@@ -189,7 +188,7 @@ class AudioRecorder {
     _amplitudeTimer?.cancel();
     _startAmplitudeTimer();
 
-    return _amplitudeStreamCtrl.stream;
+    return _amplitudeStreamCtrl!.stream;
   }
 
   Future<void> _updateAmplitudeAtInterval() async {

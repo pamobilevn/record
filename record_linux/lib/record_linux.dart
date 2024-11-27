@@ -321,8 +321,8 @@ class RecordLinux extends RecordPlatform {
     return InputDevice(
       id: id,
       label: label,
-      channels: channels,
-      sampleRate: sampleRate,
+      // channels: channels,
+      // sampleRate: sampleRate,
     );
   }
 
