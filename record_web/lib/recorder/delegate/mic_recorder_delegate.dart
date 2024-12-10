@@ -1,22 +1,27 @@
 import 'dart:async';
+import 'dart:js_interop';
 import 'dart:math';
 import 'dart:typed_data';
-import 'dart:js_util' as jsu;
 
+import 'package:flutter/foundation.dart';
 import 'package:record_platform_interface/record_platform_interface.dart';
 import 'package:record_web/encoder/encoder.dart';
 import 'package:record_web/encoder/pcm_encoder.dart';
 import 'package:record_web/encoder/wav_encoder.dart';
-import 'package:record_web/js/js_interop/audio_context.dart';
-import 'package:record_web/js/js_interop/core.dart';
 import 'package:record_web/recorder/delegate/recorder_delegate.dart';
 import 'package:record_web/recorder/recorder.dart';
+import 'package:web/web.dart' as web;
 
 class MicRecorderDelegate extends RecorderDelegate {
   final OnStateChanged onStateChanged;
 
-  AudioContext? _context;
-  StreamController<Uint8List>? _streamController;
+  // Media stream get from getUserMedia
+  web.MediaStream? _mediaStream;
+  web.AudioContext? _context;
+  web.AudioWorkletNode? _workletNode;
+  web.MediaStreamAudioSourceNode? _source;
+
+  StreamController<Uint8List>? _recordStreamCtrl;
   Encoder? _encoder;
   // Amplitude
   double _maxAmplitude = kMinAmplitude;
@@ -25,15 +30,7 @@ class MicRecorderDelegate extends RecorderDelegate {
   MicRecorderDelegate({required this.onStateChanged});
 
   @override
-  Future<void> dispose() async {
-    final context = _context;
-    if (context != null && context.state != AudioContextState.closed) {
-      await context.close();
-      _context = null;
-    }
-
-    return _streamController?.close();
-  }
+  Future<void> dispose() => _reset();
 
   @override
   Future<Amplitude> getAmplitude() async {
@@ -42,30 +39,38 @@ class MicRecorderDelegate extends RecorderDelegate {
 
   @override
   Future<bool> isPaused() async {
-    return _context?.state == AudioContextState.suspended;
+    return _context?.state == 'suspended';
   }
 
   @override
   Future<bool> isRecording() async {
     final context = _context;
-    return context != null && context.state != AudioContextState.closed;
+    return context != null && context.state != 'closed';
   }
 
   @override
   Future<void> pause() async {
     final context = _context;
-    if (context != null && context.state == AudioContextState.running) {
+    if (context != null && context.state == 'running') {
+      await context.suspend().toDart;
       onStateChanged(RecordState.pause);
-      return context.suspend();
     }
   }
 
   @override
   Future<void> resume() async {
     final context = _context;
-    if (context != null && context.state == AudioContextState.suspended) {
+    if (context != null && context.state == 'suspended') {
+      await context.resume().toDart;
+
+      if (_workletNode != null) {
+        // Workaround for Chromium based browsers,
+        // Audio worklet node is disconnected
+        // when pause state is too long (> 12~15 secs)
+        _source?.connect(_workletNode!)?.connect(context.destination);
+      }
+
       onStateChanged(RecordState.record);
-      return context.resume();
     }
   }
 
@@ -76,60 +81,70 @@ class MicRecorderDelegate extends RecorderDelegate {
 
   @override
   Future<Stream<Uint8List>> startStream(RecordConfig config) async {
-    await _streamController?.close();
+    await _recordStreamCtrl?.close();
     final streamController = StreamController<Uint8List>();
 
     try {
       await _start(config, isStream: true);
-    } catch (_) {
-      streamController.close();
+    } catch (err) {
+      debugPrint(err.toString());
+      await streamController.close();
       rethrow;
     }
 
-    _streamController = streamController;
+    _recordStreamCtrl = streamController;
 
     return streamController.stream;
   }
 
   @override
   Future<String?> stop() async {
-    final context = _context;
-    if (context != null && context.state != AudioContextState.closed) {
-      await context.close();
-    }
+    await _reset(resetEncoder: false);
+
+    final blob = _encoder?.finish();
+    _encoder?.cleanup();
+    _encoder = null;
 
     onStateChanged(RecordState.stop);
 
-    final blob = _encoder?.finish();
-    _encoder = null;
-    _maxAmplitude = kMinAmplitude;
-    _amplitude = kMinAmplitude;
-
-    return blob != null ? Url.createObjectURL(blob) : null;
+    return blob != null ? web.URL.createObjectURL(blob) : null;
   }
 
   Future<void> _start(RecordConfig config, {bool isStream = false}) async {
-    final mediaDevices = window.navigator.mediaDevices;
+    final mediaStream = await initMediaStream(config);
+    _mediaStream = mediaStream;
 
-    final constraints = MediaStreamConstraints(
-      audio: config.device == null
-          ? true
-          : {
-              'deviceId': {'exact': config.device!.id}
-            },
+    // TODO: Remove Firefox detection to better handle sample rate support with
+    // track constraints (failed to convert ConstaintULong for now).
+    final isFirefox =
+    web.window.navigator.userAgent.toLowerCase().contains('firefox');
+    final context = switch (isFirefox) {
+      true => web.AudioContext(),
+      false => web.AudioContext(
+        web.AudioContextOptions(sampleRate: config.sampleRate.toDouble()),
+      ),
+    };
+
+    final source = context.createMediaStreamSource(mediaStream);
+
+    // TODO Remove record.worklet.js from assets and use it from lib sources.
+    // This will avoid to propagate it on non web platforms.
+    await context.audioWorklet
+        .addModule('assets/packages/record_web/assets/js/record.worklet.js')
+        .toDart;
+
+    final workletNode = web.AudioWorkletNode(
+      context,
+      'recorder.worklet',
+      web.AudioWorkletNodeOptions(
+        parameterData: {
+          'numChannels'.toJS: config.numChannels.toJS,
+          'sampleRate'.toJS: config.sampleRate.toJS,
+        }.jsify()! as JSObject,
+      ),
     );
 
-    final context = AudioContext();
-    final microphone = await mediaDevices.getUserMedia(constraints);
-
-    final source = context.createMediaStreamSource(microphone);
-
-    await context.audioWorklet.addModule(
-      '/assets/packages/record_web/assets/js/record.worklet.js',
-    );
-
-    final recorder = AudioWorkletNode(context, 'recorder.worklet');
-    source.connect(recorder).connect(context.destination);
+    source.connect(workletNode)?.connect(context.destination);
 
     if (!isStream) {
       _encoder?.cleanup();
@@ -144,47 +159,40 @@ class MicRecorderDelegate extends RecorderDelegate {
       }
     }
 
-    recorder.port.onmessage = jsu.allowInterop(
-      (event) {
-        if (isStream) {
-          _onMessageStream(event as MessageEvent);
-        } else {
-          _onMessage(event as MessageEvent);
-        }
-      },
-    );
+    if (isStream) {
+      workletNode.port.onmessage =
+          ((web.MessageEvent event) => _onMessageStream(event)).toJS;
+    } else {
+      workletNode.port.onmessage =
+          ((web.MessageEvent event) => _onMessage(event)).toJS;
+    }
 
+    _source = source;
+    _workletNode = workletNode;
     _context = context;
+    _mediaStream = mediaStream;
 
     onStateChanged(RecordState.record);
   }
 
-  void _onMessage(MessageEvent event) {
-    // `data` is a float 32 array containing audio samples
-    final output = _convertFloat32toInt16(event.data);
-    _encoder?.encode(output);
-    _updateAmplitude(output);
-  }
+  void _onMessage(web.MessageEvent event) {
+    // `data` is a int 16 array containing audio samples
+    final output = (event.data as JSInt16Array?)?.toDart;
 
-  void _onMessageStream(MessageEvent event) {
-    // `data` is a float 32 array containing audio samples
-    final output = _convertFloat32toInt16(event.data);
-
-    final data = ByteData.sublistView(output);
-    _streamController?.add(data.buffer.asUint8List());
-    _updateAmplitude(output);
-  }
-
-  Int16List _convertFloat32toInt16(Float32List data) {
-    final output = Int16List(data.length);
-
-    for (var i = 0; i < data.length; i++) {
-      var sample32 = data[i].clamp(-1.0, 1.0);
-
-      output[i] = (sample32 * 0x7fff).toInt();
+    if (output case final output?) {
+      _encoder?.encode(output);
+      _updateAmplitude(output);
     }
+  }
 
-    return output;
+  void _onMessageStream(web.MessageEvent event) {
+    // `data` is a int 16 array containing audio samples
+    final output = (event.data as JSInt16Array?)?.toDart;
+
+    if (output case final output?) {
+      _recordStreamCtrl?.add(output.buffer.asUint8List());
+      _updateAmplitude(output);
+    }
   }
 
   void _updateAmplitude(Int16List data) {
@@ -202,5 +210,22 @@ class MicRecorderDelegate extends RecorderDelegate {
     if (_amplitude > _maxAmplitude) {
       _maxAmplitude = _amplitude;
     }
+  }
+
+  Future<void> _reset({bool resetEncoder = true}) async {
+    await resetContext(_context, _mediaStream);
+    _mediaStream = null;
+    _context = null;
+
+    if (resetEncoder) {
+      _encoder?.cleanup();
+      _encoder = null;
+    }
+
+    _maxAmplitude = kMinAmplitude;
+    _amplitude = kMinAmplitude;
+
+    _recordStreamCtrl?.close();
+    _recordStreamCtrl = null;
   }
 }

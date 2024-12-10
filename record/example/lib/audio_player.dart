@@ -14,10 +14,10 @@ class AudioPlayer extends StatefulWidget {
   final VoidCallback onDelete;
 
   const AudioPlayer({
-    Key key,
-    @required this.source,
-    @required this.onDelete,
-  }) : super(key: key);
+    super.key,
+    required this.source,
+    required this.onDelete,
+  });
 
   @override
   AudioPlayerState createState() => AudioPlayerState();
@@ -28,29 +28,30 @@ class AudioPlayerState extends State<AudioPlayer> {
   static const double _deleteBtnSize = 24;
 
   final _audioPlayer = ap.AudioPlayer()..setReleaseMode(ReleaseMode.stop);
-  StreamSubscription<void> _playerStateChangedSubscription;
-  StreamSubscription<Duration> _durationChangedSubscription;
-  StreamSubscription<Duration> _positionChangedSubscription;
-  Duration _position;
-  Duration _duration;
+  late StreamSubscription<void> _playerStateChangedSubscription;
+  late StreamSubscription<Duration?> _durationChangedSubscription;
+  late StreamSubscription<Duration> _positionChangedSubscription;
+  Duration? _position;
+  Duration? _duration;
 
   @override
   void initState() {
     _playerStateChangedSubscription =
         _audioPlayer.onPlayerComplete.listen((state) async {
-      await stop();
-      setState(() {});
-    });
+          await stop();
+        });
     _positionChangedSubscription = _audioPlayer.onPositionChanged.listen(
-      (position) => setState(() {
+          (position) => setState(() {
         _position = position;
       }),
     );
     _durationChangedSubscription = _audioPlayer.onDurationChanged.listen(
-      (duration) => setState(() {
+          (duration) => setState(() {
         _duration = duration;
       }),
     );
+
+    _audioPlayer.setSource(_source);
 
     super.initState();
   }
@@ -115,7 +116,7 @@ class AudioPlayerState extends State<AudioPlayer> {
         color: color,
         child: InkWell(
           child:
-              SizedBox(width: _controlSize, height: _controlSize, child: icon),
+          SizedBox(width: _controlSize, height: _controlSize, child: icon),
           onTap: () {
             if (_audioPlayer.state == ap.PlayerState.playing) {
               pause();
@@ -159,13 +160,18 @@ class AudioPlayerState extends State<AudioPlayer> {
     );
   }
 
-  Future<void> play() {
-    return _audioPlayer.play(
-      kIsWeb ? ap.UrlSource(widget.source) : ap.DeviceFileSource(widget.source),
-    );
+  Future<void> play() => _audioPlayer.play(_source);
+
+  Future<void> pause() async {
+    await _audioPlayer.pause();
+    setState(() {});
   }
 
-  Future<void> pause() => _audioPlayer.pause();
+  Future<void> stop() async {
+    await _audioPlayer.stop();
+    setState(() {});
+  }
 
-  Future<void> stop() => _audioPlayer.stop();
+  Source get _source =>
+      kIsWeb ? ap.UrlSource(widget.source) : ap.DeviceFileSource(widget.source);
 }
